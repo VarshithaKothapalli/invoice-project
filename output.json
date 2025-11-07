@@ -1,0 +1,8 @@
+[
+  {
+    "key": "fraud_report",
+    "label": "Fraud Detection Report",
+    "description": "Flags anomalies with risk levels",
+    "types": ["json", "string", "object"]
+  }
+]

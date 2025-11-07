@@ -1,0 +1,9 @@
+python-dotenv
+google-genai
+streamlit
+fastapi[standard]
+uvicorn
+pandas
+pytesseract
+Pillow
+opencv-python

@@ -1,0 +1,10 @@
+[
+  {
+    "key": "invoice_image",
+    "label": "Invoice Image",
+    "description": "Upload scanned invoice",
+    "type": "image",
+    "required": true,
+    "inputTypes": ["image"]
+  }
+]
