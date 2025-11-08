@@ -1,31 +1,22 @@
 import streamlit as st
-import requests
+from fraud import detect_fraud, reset_seen_invoices
+from ocr import extract_text_from_bytes
 
 st.title("Invoice Fraud Detection Agent")
 
-uploaded_files = st.file_uploader(
-    "Upload Invoice Images",
-    type=["png", "jpg", "jpeg"],
-    accept_multiple_files=True
-)
+# ✅ Reset button
+if st.button("Reset Duplicate Tracking"):
+    reset_seen_invoices()
+    st.success("Duplicate invoice memory cleared!")
 
-if uploaded_files:
-    for file in uploaded_files:
-        st.subheader(f"📄 {file.name}")
-        response = requests.post(
-            "http://localhost:8000/process_invoice/",
-            files={"file": (file.name, file.getvalue(), file.type)}
-        )
-        result = response.json()
+uploaded_file = st.file_uploader("Upload an invoice image", type=["png", "jpg", "jpeg"])
 
-        if "error" in result:
-            st.error(f"❌ {result['error']}")
-        else:
-            st.success("✅ Processed successfully")
-            st.text_area("Extracted Text", result["text"], height=200)
+if uploaded_file:
+    text = extract_text_from_bytes(uploaded_file.read())
+    st.text_area("Extracted Text", text, height=200)
 
-            # ✅ Show fraud detection flags
-            if result.get("fraud_flags"):
-                st.warning("⚠️ Fraud Flags:")
-                for issue in result["fraud_flags"]:
-                    st.write(f"- {issue}")
+    fraud_flags = detect_fraud(text)
+    if fraud_flags:
+        st.error("⚠️ Fraud Flags:\n" + "\n".join(fraud_flags))
+    else:
+        st.success("✅ No fraud detected")

@@ -37,3 +37,8 @@ def detect_fraud(text: str):
         issues.append("No amount found")
 
     return issues
+
+def reset_seen_invoices():
+    """Clear stored invoice numbers (for new session/demo)."""
+    global seen_invoice_numbers
+    seen_invoice_numbers.clear()
