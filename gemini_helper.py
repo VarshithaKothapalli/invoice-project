@@ -1,75 +1,83 @@
 import os
-from dotenv import load_dotenv
+import requests
 import google.generativeai as genai
 
-# Load API key
-load_dotenv()
-api_key = os.getenv("GOOGLE_API_KEY")
-if api_key:
-    genai.configure(api_key=api_key)
+# Load environment flags
+USE_DEEPSEEK = os.getenv("USE_DEEPSEEK", "false").lower() == "true"
+GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
-# Auto-select first available model that supports generateContent
-try:
-    MODEL_NAME = next(
-        (m.name for m in genai.list_models() if "generateContent" in m.supported_generation_methods),
-        "models/gemini-1.0-pro"  # fallback
-    )
-except Exception:
-    MODEL_NAME = "models/gemini-1.0-pro"
+# Gemini setup
+if GEMINI_API_KEY and not USE_DEEPSEEK:
+    genai.configure(api_key=GEMINI_API_KEY)
+    SUPPORTED_MODELS = [
+        "gemini-pro",
+        "models/gemini-pro",
+        "models/gemini-1.5-pro-latest"
+    ]
 
-def explain_flags_with_gemini(flags, invoice_text: str) -> str:
+def explain_flags_with_gemini(fraud_flags: list, text: str) -> str:
     """
-    Returns a simple-language explanation of fraud flags using Gemini.
-    If Gemini is unavailable, returns a rule-based fallback explanation.
+    Unified explanation function that routes to Gemini, DeepSeek, or fallback.
+    Accepts fraud flags and invoice text separately.
     """
-    if not flags:
-        return "No fraud detected."
+    prompt = build_prompt(fraud_flags, text)
+    return get_explanation(prompt)
 
+def get_explanation(prompt: str) -> str:
     try:
-        model = genai.GenerativeModel(MODEL_NAME)
-        prompt = f"""
-You are an auditor. Explain in simple language why the following fraud flags were raised.
-
-Invoice text:
----
-{invoice_text}
----
-
-Fraud flags:
-{flags}
-
-Explain each flag clearly and briefly, focusing on practical reasons an auditor would care.
-"""
-        response = model.generate_content(prompt)
-        return (response.text or "").strip() or "Explanation unavailable."
-
-    except Exception as e:
-        error_msg = str(e).lower()
-
-        if "quota" in error_msg or "429" in error_msg:
-            return rule_based_explanation(flags)
-        elif "api_key" in error_msg or "no api key" in error_msg:
-            return rule_based_explanation(flags)
-        elif "not found" in error_msg or "404" in error_msg or "unsupported" in error_msg:
-            return rule_based_explanation(flags)
+        if USE_DEEPSEEK:
+            return call_deepseek(prompt)
         else:
-            return rule_based_explanation(flags)
+            return call_gemini(prompt)
+    except Exception as e:
+        print(f"[LLM fallback] Error: {e}")
+        return rule_based_explanation(prompt)
 
-def rule_based_explanation(flags: list) -> str:
-    """
-    Generates a simple rule-based explanation for fraud flags.
-    """
-    explanations = {
-        "missing_gstin": "GSTIN is missing, which is mandatory for tax compliance.",
-        "duplicate_invoice": "This invoice appears to be a duplicate of a previously submitted one.",
-        "amount_mismatch": "The total amount doesn't match the sum of line items.",
-        "date_anomaly": "The invoice date is outside the expected billing cycle.",
-        "vendor_not_registered": "The vendor is not listed in the approved vendor registry.",
-        "invalid_format": "The invoice format doesn't match the expected template.",
+def call_gemini(prompt: str) -> str:
+    for model in SUPPORTED_MODELS:
+        try:
+            llm = genai.GenerativeModel(model)
+            response = llm.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            print(f"[Gemini error] Model {model} failed: {e}")
+    raise RuntimeError("Gemini is currently unavailable.")
+
+def call_deepseek(prompt: str) -> str:
+    url = "https://api.deepseek.com/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json"
     }
+    payload = {
+        "model": "deepseek-chat",
+        "messages": [{"role": "user", "content": prompt}]
+    }
+    response = requests.post(url, json=payload, headers=headers)
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"]
 
-    output = ["Gemini is currently unavailable. Here's a rule-based explanation instead:\n"]
-    for flag in flags:
-        reason = explanations.get(flag, f"{flag.replace('_', ' ').capitalize()} may indicate irregularities.")
-        output.append(f"- {reason}")
-    return "\n".join(output)
+def rule_based_explanation(prompt: str) -> str:
+    prompt_upper = prompt.upper()
+    if "PAN" in prompt_upper:
+        return "Missing or invalid PAN may indicate irregularities in tax compliance or vendor identity."
+    elif "GSTIN" in prompt_upper:
+        return "Invalid GSTIN format may suggest fake or unregistered tax IDs, which can trigger audit flags."
+    elif "DUPLICATE" in prompt_upper:
+        return "Duplicate invoice numbers may indicate accidental reprocessing or intentional fraud."
+    elif "TOTAL MISMATCH" in prompt_upper:
+        return "Mismatch between subtotal, taxes, and total may indicate calculation errors or manipulation."
+    else:
+        return "Anomaly detected. Please verify the invoice details manually."
+
+def build_prompt(fraud_flags: list, text: str) -> str:
+    flags_str = ", ".join(fraud_flags)
+    return f"""You are an invoice fraud detection assistant.
+
+Explain the following fraud flags in simple terms for a human reviewer:
+- Flags: {flags_str}
+
+Here is the invoice text:
+{text}
+"""
