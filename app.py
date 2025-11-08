@@ -21,6 +21,27 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
+def categorize_flags(flags):
+    categories = {
+        "GSTIN Issues": [],
+        "PAN Issues": [],
+        "Invoice Issues": [],
+        "Amount Issues": [],
+        "Other Issues": []
+    }
+    for flag in flags:
+        if "GSTIN" in flag:
+            categories["GSTIN Issues"].append(flag)
+        elif "PAN" in flag:
+            categories["PAN Issues"].append(flag)
+        elif "invoice" in flag.lower():
+            categories["Invoice Issues"].append(flag)
+        elif "amount" in flag.lower():
+            categories["Amount Issues"].append(flag)
+        else:
+            categories["Other Issues"].append(flag)
+    return categories
+
 if uploaded_files:
     for uploaded_file in uploaded_files:
         text = extract_text_from_bytes(uploaded_file.read())
@@ -32,10 +53,17 @@ if uploaded_files:
         else:
             st.success(f"✅ No fraud detected in {uploaded_file.name}")
 
-        # Save result in session
+        # Categorize flags
+        categories = categorize_flags(fraud_flags)
+
+        # Save structured result
         st.session_state["results"].append({
             "filename": uploaded_file.name,
-            "fraud_flags": ", ".join(fraud_flags) if fraud_flags else "None"
+            "GSTIN Issues": ", ".join(categories["GSTIN Issues"]) or "None",
+            "PAN Issues": ", ".join(categories["PAN Issues"]) or "None",
+            "Invoice Issues": ", ".join(categories["Invoice Issues"]) or "None",
+            "Amount Issues": ", ".join(categories["Amount Issues"]) or "None",
+            "Other Issues": ", ".join(categories["Other Issues"]) or "None"
         })
 
 # ✅ Export results as CSV
