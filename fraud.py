@@ -1,5 +1,8 @@
 import re
 
+# Store seen invoice numbers across uploads
+seen_invoice_numbers = set()
+
 def detect_fraud(text: str):
     issues = []
 
@@ -14,7 +17,14 @@ def detect_fraud(text: str):
         issues.append("Missing or invalid PAN")
 
     # Check for invoice number
-    if "Invoice No" not in text and "Invoice #" not in text:
+    invoice_match = re.search(r'\b(?:Invoice\s*(?:No|#)?[:\-]?\s*)([A-Z0-9\-]+)\b', text, re.IGNORECASE)
+    if invoice_match:
+        invoice_number = invoice_match.group(1)
+        if invoice_number in seen_invoice_numbers:
+            issues.append(f"Duplicate invoice number detected: {invoice_number}")
+        else:
+            seen_invoice_numbers.add(invoice_number)
+    else:
         issues.append("Missing invoice number")
 
     # Check for suspicious amounts
