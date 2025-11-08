@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 import requests
 
@@ -18,8 +17,15 @@ if uploaded_files:
             files={"file": (file.name, file.getvalue(), file.type)}
         )
         result = response.json()
+
         if "error" in result:
             st.error(f"❌ {result['error']}")
         else:
             st.success("✅ Processed successfully")
             st.text_area("Extracted Text", result["text"], height=200)
+
+            # ✅ Show fraud detection flags
+            if result.get("fraud_flags"):
+                st.warning("⚠️ Fraud Flags:")
+                for issue in result["fraud_flags"]:
+                    st.write(f"- {issue}")
