@@ -1,57 +1,31 @@
-# ocr.py
-from PIL import Image, UnidentifiedImageError
-import pytesseract
-import io
 import cv2
+import pytesseract
+from PIL import Image
 import numpy as np
+import io
 
-# ✅ Set Tesseract path (required on Windows)
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+def preprocess_image_bytes(image_bytes: bytes):
+    # Read bytes into numpy array
+    img_array = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
-def preprocess_image(image_bytes):
-    """
-    Enhance image for better OCR accuracy using OpenCV adaptive thresholding.
-    """
-    # Convert PIL image to OpenCV format
-    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    open_cv_image = np.array(image)
+    if img is None:
+        # Fallback via Pillow
+        pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
 
     # Convert to grayscale
-    gray = cv2.cvtColor(open_cv_image, cv2.COLOR_RGB2GRAY)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # Resize up to help OCR on small text
+    scale = 1.5
+    resized = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
+    # Threshold (adaptive)
+    thr = cv2.adaptiveThreshold(resized, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 31, 10)
+    return thr
 
-    # Adaptive thresholding (better than fixed threshold)
-    thresh = cv2.adaptiveThreshold(
-        gray, 255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY,
-        11, 2
-    )
-
-    # Convert back to PIL for Tesseract
-    return Image.fromarray(thresh)
-
-def extract_text_from_bytes(image_bytes):
-    """
-    Extract text from image bytes using Tesseract OCR.
-    Includes fallback configs if first attempt fails.
-    """
-    try:
-        image = preprocess_image(image_bytes)
-
-        # First attempt with PSM 6 (block of text)
-        text = pytesseract.image_to_string(image, config="--psm 6")
-
-        # Fallback if text is too short
-        if len(text.strip()) < 10:
-            text = pytesseract.image_to_string(image, config="--psm 4")  # multi-column
-        if len(text.strip()) < 10:
-            text = pytesseract.image_to_string(image, config="--psm 11") # sparse text
-
-        print("🔍 OCR Output Preview:", text[:200])
-        return text
-    except UnidentifiedImageError:
-        print("❌ Unrecognized image format")
-        return None
-    except Exception as e:
-        print(f"❌ OCR failed: {e}")
-        return None
+def extract_text_from_bytes(image_bytes: bytes) -> str:
+    img_proc = preprocess_image_bytes(image_bytes)
+    # Tesseract OCR
+    config = "--oem 3 --psm 6"
+    text = pytesseract.image_to_string(img_proc, config=config)
+    return text.strip()
